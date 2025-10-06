@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "llm-system-lifecycle"
+version = "0.1.0"
+description = ""
+authors = ["Sean Deery <sdeery14@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+mlflow = "^3.4.0"
+pydantic = "^2.11.10"
+openai-agents = "^0.3.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
