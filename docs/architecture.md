@@ -2,328 +2,67 @@
 
 ## Overview
 
-This document describes the architecture for a comprehensive LLM (Large Language Model) lifecycle management platform. The platform is designed to support the complete lifecycle of LLM development, evaluation, optimization, and deployment with human-in-the-loop oversight and MLflow as the central tracking and storage system.
+This document describes the architecture for a comprehensive LLM (Large Language Model) lifecycle management platform. We use the C4 model—a hierarchical technique with four diagram levels: Context (C1), Container (C2), Component (C3), and Code (C4)—to progressively zoom from the system landscape to implementation details (Note: C4 diagrams will be added as implementation evolves). The platform is designed to support the complete lifecycle of LLM development, evaluation, optimization, and deployment with human-in-the-loop oversight and MLflow as the central tracking and storage system.
 
-## Architecture Philosophy
-
-The platform follows a **human-guided, agent-assisted** approach where:
-- AI agents perform heavy computational work and systematic analysis
-- Human evaluators provide oversight, strategic decisions, and quality control
-- Each transition between lifecycle stages requires human approval (with future flexibility for automation)
-- MLflow serves as the central repository for experiments, models, artifacts, and metadata
-
-## System Architecture Overview
-
-### C4 Model Structure
-
-The architecture is documented using the C4 model, providing multiple levels of detail:
-- **System Context (C1)**: Shows the platform's role in the broader ecosystem
-- **Container Diagram (C2)**: Reveals major architectural containers and their relationships
-- **Component Diagram (C3)**: Details internal component structure and interactions
+The platform follows a **human-guided, agent-assisted** approach where AI agents perform heavy computational work and systematic analysis. Human evaluators provide oversight, strategic decisions, and quality control. Each transition between lifecycle stages requires human approval (with future flexibility for automation). MLflow serves as the central repository for experiments, models, artifacts, and metadata.
 
 ## System Context Diagram (C1)
 
+- Highest level of abstraction
+- Describes something that delivers value to its users
+
 ![System Context Diagram](llm-system-lifecycle-c1.drawio.svg)
 
-### External Actors
+The left hand side of the C1 diagram shows the **External Actors** that will interact with the platform. External Actors can include QA Testers, ML Engineers, Analysts, and Project Managers. These tasks can all be done by one user on small teams or by the appropriate specialists on larger teams. This user may also be referred to generally as the **human evaluator**.
 
-**QA Tester**
-- Responsible for comprehensive testing of LLM agents and prompts
-- Provides human evaluation and quality assurance oversight
+The **LLM System Lifecycle Platform** block in the middle represents the core functionality of this project.
 
-**ML Engineer** 
-- Configures agents and prompts for optimal performance
-- Manages technical aspects of model deployment and monitoring
-
-**Analyst PM**
-- Reviews reports and analytics from model evaluations
-- Makes strategic decisions about model performance and business impact
-
-**OSPO Runner**
-- Triggers evaluation runs and manages operational aspects
-- Oversees compliance and governance requirements
-
-### External Systems
-
-**ML Ops**
-- Integration with existing ML operations infrastructure
-- Handles model deployment and monitoring in production environments
-
-**GitHub**
-- Source code management and version control
-- Stores prompt templates, configuration files, and deployment scripts
-
-**Slack/Email**
-- Notification and communication systems
-- Alerts for model performance issues and evaluation completion
-
-**LLM Provider**
-- External LLM APIs (OpenAI, Anthropic, etc.)
-- Provides the foundational models for evaluation and deployment
+The right hand side of the C1 diagram shows the **External Systems** the platform will interact with. External systems this project interacts with include MLflow, GitHub, Notification Services, and LLM Providers.
 
 ## Container Diagram (C2)
 
+- Application pieces
+- Data stores 
+
 ![Container Diagram](llm-system-lifecycle-c2.drawio.svg)
 
-### Client Container
+The C2 Container Diagram zooms into the **LLM System Lifecycle Platform** block to show the main pieces of the application. The top of the C2 Diagram shows the **Client Container**, which holds the Web UI the human evaluator will interact with. The Web UI includes an interactive dashboard to view results and chat interfaces for agent interaction. 
 
-**Web UI / Dashboard**
-- Interactive dashboard for human evaluators
-- Chat interfaces for agent interaction
-- Visualization of evaluation results and metrics
-- Configuration management interface
+The **Backend Container** on the left hand side shows where the core functionality of the app lives. The **LLM Lifecycle API (FastAPI-based)** handles RESTful API serving the client application. The **LLM Lifecycle Orchestrator** is the core workflow engine managing the evaluation pipeline. 
 
-### Backend Container
+The **External Services** on the right hand side shows the external services the LLM Lifecycle Orchestrator uses. The **MLflow Tracking + Registry** acts as the central repository for all experiments and model artifacts. It manages the storage of evaluation metrics, comparison reports, and model versions. The **MLflow Storage** block is the object store and SQL database MLflow uses to store the files and metadata. The **LLM Provider** is the collection of external APIs for large language models that handle inference requests and responses.
 
-**LLM Lifecycle API FastAPI**
-- RESTful API serving the client application
-- Orchestrates workflow between different evaluation stages
-- Manages authentication and authorization
+## Component Diagrams (C3)
 
-**LLM Lifecycle Orchestrator**
-- Core workflow engine managing the evaluation pipeline
-- Coordinates between different specialized agents
-- Handles state management and transition logic
+- The components that make up the core logic of the app
 
-**PostgreSQL DB**
-- Stores application state, user sessions, and workflow metadata
-- Maintains evaluation queue and job status
-- Stores user preferences and configuration settings
-
-### External Services Container
-
-**ML Flow Tracking + Registry**
-- Central repository for all experiments and model artifacts
-- Stores evaluation metrics, comparison reports, and model versions
-- Maintains complete audit trail of model lifecycle
-
-**LLM Provider**
-- External APIs for large language models
-- Handles model inference requests and responses
-
-## Component Diagram (C3)
+### LLM Lifecycle Orchestrator Component (C3)
 
 ![Component Diagram](llm-system-lifecycle-c3.drawio.svg)
 
-The component diagram details the internal structure of the LLM Lifecycle Orchestrator Backend, organized into logical swim lanes representing different stages of the evaluation workflow.
+The LLM Lifecycle Orchestrator Component diagram details the internal structure of the LLM Lifecycle Orchestrator Backend, organized into the different stages of the evaluation workflow.
 
-### Configuration Stage
+In **Stage 1: Agent Development**, the human evaluator builds an agent to evaluate and optimize.
 
-**Pipeline Definition**
-- Defines evaluation pipelines and workflow configurations
-- Manages agent configurations and prompt templates
+In **Stage 2: Dataset Builder**, the human evaluator has a chat with the Dataset Builder Agent. The agent reads the metadata for the agent being evaluated, and then ideates with the user how it should set up a dataset that will accurately evaluate how the app performs when presented with potential real world input. The dataset requires a scenario and an expected behavior. When both the human evaluator and the agent agree to create the dataset, the dataset is created and then immediately analyzed in a step called Dataset Validation. This step involves analyzing the created dataset to make sure it passed a quality threshold. The dataset along with a report about the dataset is saved to MLflow.
 
-**Memory Prompts Tool**
-- Configures and manages prompt templates for different evaluation scenarios
-- Stores prompt variations and optimization history
+In **Stage 3: Simulator**, the User Simulation Agent is configured with each scenario from the test dataset and is run against the agent. The chat traces are saved to MLflow. The Human Evaluator is not involved in this step other than to trigger the simulation.
 
-**Agent to be Evaluated**
-- Represents the target LLM agent undergoing evaluation
-- Configured with specific prompts, parameters, and behavioral settings
+In **Stage 4: Judging**, the scenarios, expected behaviors, and chat traces from the simulations are passed to a Judge Agent who gives each simulation a score and a reason for that score. The scores and rationales are stored in MLflow.
 
-### Evaluation Stage
+In **Stage 5: Analytics**, the scores and rationales are aggregated, and the human evaluator has a chat with the Analyst Agent to explore the data and build a report that explains as much as possible about what can be expected by the agent in a production setting based on the simulation results. The report is stored in MLflow.
 
-**Dataset Builder Agent**
-- Generates evaluation datasets based on specified criteria
-- Creates test cases and validation scenarios
+In **Stage 6: Comparison**, the human evaluator has a chat with the Comparison Agent to compare the results of two different agents. The resulting comparison analysis and recommendation report is saved to MLflow.
 
-**Human Evaluator**
-- Primary human oversight component for quality control
-- Reviews agent outputs and makes go/no-go decisions for pipeline progression
+In **Stage 7: Deployment**, the best model is registered in MLflow, and follows a progressive rollout to eventually be fully rolled out.
 
-**Converse Design Session**
-- Interactive sessions for refining conversation design
-- Iterative improvement of agent behavior and responses
+In **Stage 8: Feedback Analysis**, the human evaluator has a chat with the Feedback Analyst Agent to analyze the feedback of the deployed model, which results in a production agent report.
 
-**Test Dataset**
-- Curated datasets for systematic evaluation
-- Version-controlled test cases and benchmarks
+In the **Feedback Loop**, the production agent report is used by the human AI engineer and the Dataset Builder Agent to develop better models, tools, prompts, and evaluation datasets. 
 
-### Simulation Stage
+### MLflow Integration (C3)
 
-**Dataset Validation Agent**
-- Validates dataset quality and completeness
-- Ensures evaluation datasets meet specified criteria
-
-**Human Evaluator**
-- Reviews validation results and approves datasets for use
-- Provides human judgment on edge cases and outliers
-
-**Dataset Validation Session**
-- Interactive session for dataset review and refinement
-- Collaborative validation between human and agent
-
-**Dataset Validation Report**
-- Comprehensive reports on dataset quality and characteristics
-- Stored as MLflow artifacts for traceability
-
-### Behavior Analysis Stage
-
-**User Simulation Agent**
-- Simulates user interactions with the target agent
-- Generates realistic conversation scenarios and user behaviors
-
-**User / Agent Simulator**
-- Orchestrates simulated interactions between users and agents
-- Manages conversation state and context
-
-**Simulation Transcripts + Test Logs**
-- Complete records of simulated interactions
-- Detailed logs for analysis and debugging
-
-### Quality Assessment Stage
-
-**Judge Agent**
-- Automated evaluation of agent responses using predefined criteria
-- Provides systematic scoring and quality assessment
-
-**Judged Scores + Rationales**
-- Quantitative scores with qualitative explanations
-- Structured feedback for agent improvement
-
-### Analysis Stage
-
-**Analyst Agent**
-- Performs statistical analysis on evaluation results
-- Identifies patterns, trends, and areas for improvement
-
-**Human Evaluator**
-- Reviews analysis results and provides strategic insights
-- Makes decisions about next steps in the evaluation process
-
-**Analysis Session**
-- Interactive analysis sessions between human and AI
-- Deep dive into performance metrics and behavioral patterns
-
-**Agent Evaluation Report**
-- Comprehensive evaluation reports with recommendations
-- Stored in MLflow for historical comparison and tracking
-
-### Comparison Stage
-
-**Comparison Analysis Agent**
-- Compares multiple agents or agent versions
-- Performs statistical significance testing and benchmarking
-
-**Human Evaluator**
-- Reviews comparison results and makes selection decisions
-- Provides business context for technical performance metrics
-
-**Baseline Agent Evaluation Report**
-- Baseline performance metrics for comparison purposes
-- Historical benchmarks and performance standards
-
-**Comparison Session**
-- Interactive sessions for comparing agent performance
-- Side-by-side analysis and decision making
-
-**Agent Comparison Report**
-- Detailed comparison reports with recommendations
-- A/B testing results and statistical analysis
-
-### Deployment Stage
-
-**Health Check Process**
-- Automated health checks before deployment
-- Validation of model integrity and performance thresholds
-
-**Package and Register Model**
-- Model packaging for deployment
-- Registration in MLflow model registry
-
-**Staging Process**
-- Staging environment deployment and testing
-- Pre-production validation and monitoring
-
-**Production Gates**
-- Final approval gates before production deployment
-- Sign-off processes and compliance checks
-
-**Full Rollout**
-- Production deployment and monitoring
-- Performance tracking and alerting
-
-### Data Management
-
-**Context, Image, Convert to Training/Test Data, Publish**
-- Data pipeline components for managing evaluation data
-- Conversion between different data formats and storage systems
-
-## Technology Stack
-
-### Core Technologies
-
-**MLflow**
-- Central hub for experiment tracking, model registry, and artifact storage
-- Stores all evaluation reports, metrics, and model metadata
-- Provides REST API for programmatic access to experiments and models
-
-**FastAPI**
-- Modern Python web framework for building APIs
-- Automatic API documentation and validation
-- High performance with async/await support
-
-**PostgreSQL**
-- Reliable relational database for application state
-- ACID compliance for critical workflow data
-- Excellent integration with Python ecosystem
-
-**React/Next.js** (Proposed for Client)
-- Modern frontend framework for interactive dashboards
-- Component-based architecture for reusable UI elements
-- Real-time updates for evaluation progress
-
-### Integration Patterns
-
-**Event-Driven Architecture**
-- Components communicate through events and message queues
-- Loose coupling between evaluation stages
-- Support for both synchronous and asynchronous processing
-
-**RESTful APIs**
-- Standard HTTP APIs for client-server communication
-- OpenAPI/Swagger documentation for all endpoints
-- Consistent error handling and response formats
-
-**Chat Session Management**
-- WebSocket connections for real-time chat interfaces
-- Session state management for human-agent interactions
-- Context preservation across conversation turns
-
-## Workflow Scenarios
-
-### Scenario 1: New Agent Evaluation
-
-1. **Configuration**: ML Engineer configures new agent with specific prompts and parameters
-2. **Dataset Creation**: Dataset Builder Agent generates appropriate test cases
-3. **Human Review**: Human Evaluator reviews and approves dataset quality
-4. **Simulation**: User Simulation Agent runs comprehensive interaction tests
-5. **Automated Evaluation**: Judge Agent scores responses using predefined criteria
-6. **Analysis**: Analyst Agent performs statistical analysis and identifies issues
-7. **Human Decision**: Human Evaluator reviews results and decides on next steps
-8. **Comparison**: If needed, Comparison Analysis Agent benchmarks against existing agents
-9. **Deployment Decision**: Human Evaluator approves or rejects for deployment
-
-### Scenario 2: Prompt Optimization
-
-1. **Baseline Establishment**: Current agent performance is measured and stored
-2. **Prompt Variations**: Memory Prompts Tool generates alternative prompt configurations
-3. **A/B Testing**: Multiple prompt versions are evaluated simultaneously
-4. **Statistical Analysis**: Comparison Analysis Agent determines statistical significance
-5. **Human Validation**: Human Evaluator reviews results and selects optimal prompt
-6. **Deployment**: Winning prompt is deployed through staging and production gates
-
-### Scenario 3: Model Comparison
-
-1. **Multi-Model Setup**: Multiple agents/models are configured for comparison
-2. **Standardized Testing**: Same datasets and evaluation criteria applied to all models
-3. **Parallel Evaluation**: All models evaluated simultaneously for fair comparison
-4. **Comprehensive Analysis**: Detailed performance comparison across multiple dimensions
-5. **Business Decision**: Human Evaluator weighs technical performance against business needs
-
-## Data Flow and Storage
-
-### MLflow Integration
+![MLflow Component Diagram](llm-system-lifecycle-c3-mlflow.drawio.svg)
 
 **Experiment Tracking**
 - Each evaluation run is logged as an MLflow experiment
@@ -340,122 +79,71 @@ The component diagram details the internal structure of the LLM Lifecycle Orches
 - Stage transitions (None → Staging → Production) tracked
 - Model lineage and evaluation history maintained
 
-### Data Lineage
-
-**End-to-End Traceability**
-- Complete audit trail from configuration to deployment
-- Linkage between datasets, experiments, and model versions
-- Human decisions and rationale captured and stored
-
-**Reproducibility**
-- All evaluation runs can be reproduced from stored artifacts
-- Deterministic evaluation processes with seed management
-- Version control for prompts, datasets, and evaluation criteria
-
-## Human-in-the-Loop Design
-
-### Decision Points
-
-**Gate-Based Progression**
-- Human approval required for stage transitions
-- Configurable gates for different workflow types
-- Override capabilities for urgent deployments
-
-**Interactive Sessions**
-- Chat-based interfaces for human-agent collaboration
-- Real-time feedback and iterative improvement
-- Context-aware conversations with evaluation history
-
-**Quality Control**
-- Human review of outliers and edge cases
-- Sanity checks on automated evaluation results
-- Strategic decision making based on business context
-
-### Future Automation Options
-
-**Configurable Automation**
-- Gates can be configured for manual, automatic, or conditional approval
-- Confidence thresholds trigger human review
-- Different automation levels for different use cases
-
-**Learning from Human Decisions**
-- Capture patterns in human decision making
-- Train meta-models to predict when human review is needed
-- Gradual transition from manual to automated processes
-
-## Deployment and Scaling Considerations
-
-### Initial Development
-
-**MVP Scope**
-- Core evaluation workflow with basic MLflow integration
-- Simple web interface for human evaluators
-- Single-threaded execution for simplicity
-
-**Technology Choices**
-- Python-based backend for rapid development
-- SQLite initially, PostgreSQL for production
-- Docker containers for consistent deployment
-
-### Production Scaling
-
-**Horizontal Scaling**
-- Microservices architecture for independent scaling
-- Queue-based job processing for evaluation workloads
-- Load balancing for web interface and APIs
-
-**Performance Optimization**
-- Caching strategies for expensive evaluations
-- Parallel execution of independent evaluation tasks
-- Efficient data storage and retrieval patterns
-
-## Security and Compliance
-
-### Data Protection
-
-**Sensitive Data Handling**
-- Encryption at rest and in transit
-- Access controls for evaluation data and results
-- Audit logging for all system interactions
-
-**Model Security**
-- Secure storage of model artifacts and configurations
-- Access controls for model deployment and modification
-- Monitoring for model performance degradation
-
-### Compliance Considerations
-
-**Audit Trail**
-- Complete history of all evaluation decisions
-- Traceability of model changes and deployments
-- Compliance reporting capabilities
-
-**Governance**
-- Role-based access controls
-- Approval workflows for sensitive operations
-- Integration with enterprise governance systems
 
 ## Development Phases
 
-### Phase 1: Core Infrastructure
-- Basic MLflow integration
-- Simple evaluation workflow
-- Command-line interface for testing
+### Phase 1: End-to-End CLI + MLflow (local)
+Goal: ship a thin, working pipeline that runs locally via CLI and logs to MLflow.
 
-### Phase 2: Human Interface
-- Web-based dashboard
-- Chat session management
-- Interactive evaluation tools
+- Scripts-first approach
+  - Start by creating:
+    - Agent scripts (runnable CLIs): scripts/agents/dataset_builder.py, user_simulator.py, judge.py, analyst.py, comparator.py, feedback_analyst.py.
+    - Stage/session scripts (runnable CLIs): scripts/stages/dataset_session.py, simulate_session.py, judge_session.py, analytics_session.py, compare_session.py, deploy_session.py, feedback_session.py.
+  - Each script:
+    - Accepts JSON via --input/--output file or stdin/stdout following the data contracts.
+    - Logs its own MLflow run with standard tags and artifacts.
+    - Is idempotent and can be executed standalone or composed in the pipeline.
 
-### Phase 3: Advanced Features
-- Automated agent evaluation
-- Statistical analysis and reporting
-- Comparison and benchmarking tools
+Deliverables
+- Minimal Agents: DatasetBuilder (rule/rubric driven), Simulator (calls LLM provider or stub), Judge (simple rubric + rationale), Analyst (basic aggregation/report).
+- Data contracts (JSON Schemas) for: Dataset Scenario + Expected Behavior, Simulation Trace, Judgment (score + rationale), Analytics Report.
+- CLI commands (examples): dataset build/validate, simulate run, judge run, analytics report, compare run, deploy register (stub).
+- MLflow setup: Experiments/Runs, standard tags (project_id, agent_id, dataset_version, git_sha), artifact layout (dataset/, simulation/, judging/, reports/).
+- Instrumentation: structured logs + basic metrics (counts, latency, cost estimate).
+- Orchestrating pipeline script: scripts/pipeline/run_pipeline.py to chain stage scripts end-to-end.
+- Pipeline self-evaluation: use the pipeline to generate an “Agents Report” that evaluates each agent (latency, cost, determinism across seeds, rubric adherence, error rates) using the same MLflow experiments and artifacts.
 
-### Phase 4: Production Features
-- Deployment automation
-- Monitoring and alerting
-- Enterprise integrations
+Acceptance criteria
+- One command runs the full pipeline on a sample dataset and writes runs/artifacts to MLflow.
+- A report artifact is viewable and traces/judgments are reproducible.
+- Each agent and each stage/session script can be run independently with JSON I/O.
+- The pipeline produces an “Agents Report” summarizing per-agent performance to guide improvements.
+
+### Phase 2: API + Minimal Web UI
+Goal: expose the pipeline via FastAPI and add a basic UI for visibility and control.
+
+Deliverables
+- FastAPI endpoints for each stage with job status (CREATED → RUNNING → SUCCEEDED/FAILED).
+- Simple background worker (thread/process) for long-running steps.
+- Web UI: runs list, run detail (artifacts/metrics), minimal chat panes for Dataset/Analyst agents.
+- Auth optional in dev; config via env files.
+
+Acceptance criteria
+- A user can kick off a run from the UI, watch status, and open artifacts without the CLI.
+
+### Phase 3: Deployment, Monitoring, Scheduled Feedback
+Goal: make it durable and observable; close the production feedback loop.
+
+Deliverables
+- Containerization and deploy to a minimal environment (single VM or managed container service) with MLflow backend store + object storage.
+- Observability: logs, metrics, traces (OpenTelemetry or equivalent) and dashboards.
+- Alerts for failed jobs and abnormal metrics.
+- Scheduled jobs to ingest production feedback and run periodic evaluation/analytics.
+
+Acceptance criteria
+- Deployed system runs scheduled feedback evaluations; on failure, alerts fire; dashboards show run health.
+
+### Phase 4: Agentic Automation (opt-in)
+Goal: progressively automate human steps with guardrails.
+
+Deliverables
+- Auto dataset expansion and rubric refinement proposals.
+- Auto-judging + confidence checks; bias and drift checks.
+- Auto-promotion gates tied to MLflow model stages with thresholds; human override and audit artifacts.
+- Feature flags to turn automation on/off per project.
+
+Acceptance criteria
+- With automation enabled, the system proposes or executes steps and records justification; disabling flags reverts to human-in-the-loop.
 
 ## Conclusion
 
