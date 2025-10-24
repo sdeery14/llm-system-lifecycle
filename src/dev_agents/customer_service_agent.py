@@ -5,11 +5,85 @@ This module provides a customer service agent with realistic tools for handling
 customer inquiries, order management, and account operations.
 """
 
-from typing import Any
+from __future__ import annotations
+from typing import Any, Tuple
 from typing_extensions import TypedDict
 from datetime import datetime, timedelta
+from dataclasses import dataclass
+
+import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
 
 from agents import Agent, FunctionTool, RunContextWrapper, function_tool
+
+# Load environment variables from .env file
+load_dotenv()
+
+
+# ==================== VECTOR STORE ====================
+
+@dataclass
+class VSConfig:
+    """Configuration for the vector store."""
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+class FaissVectorStore:
+    """
+    Minimal FAISS vector store for semantic search over knowledge base articles.
+    Uses sentence transformers for embedding and cosine similarity for search.
+    """
+    
+    def __init__(self, cfg: VSConfig = VSConfig()):
+        self.cfg = cfg
+        self.model = SentenceTransformer(cfg.model_name)
+        self.dim = self.model.get_sentence_embedding_dimension()
+        # Cosine similarity via inner product on L2-normalized vectors
+        self.index = faiss.IndexFlatIP(self.dim)
+        self.docs: list[str] = []
+        self.metas: list[dict[str, Any]] = []
+
+    def _embed(self, texts: list[str]) -> np.ndarray:
+        """Embed texts using the sentence transformer model."""
+        embs = self.model.encode(texts, normalize_embeddings=True)
+        return np.asarray(embs, dtype="float32")
+
+    def add_texts(self, texts: list[str], metadatas: list[dict[str, Any]] | None = None) -> None:
+        """Add texts and their metadata to the vector store."""
+        texts = list(texts)
+        metadatas = list(metadatas) if metadatas is not None else [{} for _ in texts]
+        assert len(texts) == len(metadatas), "texts and metadatas length mismatch"
+        embs = self._embed(texts)
+        self.index.add(embs)
+        self.docs.extend(texts)
+        self.metas.extend(metadatas)
+
+    def search(self, query: str, k: int = 5, filter_fn: Any | None = None) -> list[Tuple[str, dict[str, Any], float]]:
+        """
+        Search for the top-k most similar documents to the query.
+        
+        Args:
+            query: The search query.
+            k: Number of results to return.
+            filter_fn: Optional function to filter results based on metadata.
+        
+        Returns:
+            List of tuples (document, metadata, score).
+        """
+        qv = self._embed([query])
+        scores, idxs = self.index.search(qv, k=k * 3)  # overfetch to allow filtering
+        out: list[Tuple[str, dict[str, Any], float]] = []
+        for score, i in zip(scores[0], idxs[0]):
+            if i == -1:
+                continue
+            doc, meta = self.docs[i], self.metas[i]
+            if (filter_fn is None) or filter_fn(meta):
+                out.append((doc, meta, float(score)))
+            if len(out) >= k:
+                break
+        return out
 
 
 # ==================== FAKE DATA ====================
@@ -165,6 +239,28 @@ FAKE_KNOWLEDGE_BASE = [
 PROCESSED_REFUNDS = {}
 
 
+# ==================== VECTOR STORE INITIALIZATION ====================
+
+# Module-level singleton for the knowledge base vector store
+_kb_vector_store: FaissVectorStore | None = None
+
+
+def _get_kb_vector_store() -> FaissVectorStore:
+    """Get or initialize the knowledge base vector store."""
+    global _kb_vector_store
+    if _kb_vector_store is None:
+        _kb_vector_store = FaissVectorStore()
+        # Create searchable text combining title and content
+        texts = [
+            f"{article['title']}: {article['content']}" 
+            for article in FAKE_KNOWLEDGE_BASE
+        ]
+        _kb_vector_store.add_texts(texts, FAKE_KNOWLEDGE_BASE)
+    return _kb_vector_store
+
+
+# ==================== TYPED DICTS ====================
+
 class OrderInfo(TypedDict):
     """Order information structure."""
     order_id: str
@@ -286,44 +382,43 @@ async def process_refund(refund_request: RefundRequest) -> str:
 
 
 @function_tool
-def search_knowledge_base(ctx: RunContextWrapper[Any], query: str, category: str | None = None) -> str:
-    """Search the customer service knowledge base for helpful articles.
+def search_knowledge_base(ctx: RunContextWrapper[Any], query: str, category: str | None = None, k: int = 3) -> str:
+    """Search the customer service knowledge base for helpful articles using semantic search.
     
     Args:
         query: The search query to look up in the knowledge base.
         category: Optional category to narrow down the search (e.g., 'shipping', 'returns', 'billing').
+        k: Number of top results to return (default: 3).
     
     Returns:
         Relevant information from the knowledge base.
     """
-    query_lower = query.lower()
-    matching_articles = []
+    # Get the vector store
+    store = _get_kb_vector_store()
     
-    for article in FAKE_KNOWLEDGE_BASE:
-        # Check category filter
-        if category and article["category"] != category.lower():
-            continue
-        
-        # Check if query matches title, content, or keywords
-        if (query_lower in article["title"].lower() or 
-            query_lower in article["content"].lower() or 
-            any(query_lower in keyword.lower() for keyword in article["keywords"])):
-            matching_articles.append(article)
+    # Define filter function if category is specified
+    filter_fn = None
+    if category:
+        def category_filter(meta: dict[str, Any]) -> bool:
+            return meta.get("category", "").lower() == category.lower()
+        filter_fn = category_filter
     
-    if not matching_articles:
+    # Perform semantic search
+    hits = store.search(query, k=k, filter_fn=filter_fn)
+    
+    if not hits:
         category_str = f" in category '{category}'" if category else ""
         return f"No articles found matching '{query}'{category_str}. Please try different search terms or contact us for direct assistance."
     
-    # Return the top matching article(s)
-    if len(matching_articles) == 1:
-        article = matching_articles[0]
-        return f"Found 1 article matching '{query}':\n\n**{article['title']}**\n{article['content']}"
+    # Format results
+    if len(hits) == 1:
+        article = hits[0][1]  # metadata
+        score = hits[0][2]
+        return f"Found 1 article matching '{query}' (relevance: {score:.2f}):\n\n**{article['title']}**\n{article['content']}"
     else:
-        result = f"Found {len(matching_articles)} articles matching '{query}':\n\n"
-        for i, article in enumerate(matching_articles[:3], 1):  # Show top 3
-            result += f"{i}. **{article['title']}** ({article['category']})\n   {article['content']}\n\n"
-        if len(matching_articles) > 3:
-            result += f"...and {len(matching_articles) - 3} more articles."
+        result = f"Found {len(hits)} articles matching '{query}':\n\n"
+        for i, (doc, meta, score) in enumerate(hits, 1):
+            result += f"{i}. **{meta['title']}** ({meta['category']}) - relevance: {score:.2f}\n   {meta['content']}\n\n"
         return result
 
 
