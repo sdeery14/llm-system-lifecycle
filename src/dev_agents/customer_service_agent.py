@@ -7,8 +7,162 @@ customer inquiries, order management, and account operations.
 
 from typing import Any
 from typing_extensions import TypedDict
+from datetime import datetime, timedelta
 
 from agents import Agent, FunctionTool, RunContextWrapper, function_tool
+
+
+# ==================== FAKE DATA ====================
+
+# Fake customer data
+FAKE_CUSTOMERS = {
+    "CUST001": {
+        "customer_id": "CUST001",
+        "name": "Alice Johnson",
+        "email": "alice.johnson@email.com",
+        "phone": "+1-555-0101",
+        "account_balance": 125.50,
+        "rewards_points": 25.00,
+        "join_date": "2023-01-15"
+    },
+    "CUST002": {
+        "customer_id": "CUST002",
+        "name": "Bob Smith",
+        "email": "bob.smith@email.com",
+        "phone": "+1-555-0102",
+        "account_balance": 0.00,
+        "rewards_points": 150.75,
+        "join_date": "2022-08-22"
+    },
+    "CUST003": {
+        "customer_id": "CUST003",
+        "name": "Carol Martinez",
+        "email": "carol.martinez@email.com",
+        "phone": "+1-555-0103",
+        "account_balance": 450.00,
+        "rewards_points": 75.50,
+        "join_date": "2024-03-10"
+    },
+    "CUST004": {
+        "customer_id": "CUST004",
+        "name": "David Chen",
+        "email": "david.chen@email.com",
+        "phone": "+1-555-0104",
+        "account_balance": 89.99,
+        "rewards_points": 10.00,
+        "join_date": "2024-06-05"
+    }
+}
+
+# Fake order data
+FAKE_ORDERS = {
+    "ORD12345": {
+        "order_id": "ORD12345",
+        "customer_id": "CUST001",
+        "status": "processing",
+        "items": ["Wireless Headphones", "USB-C Cable"],
+        "total": 79.99,
+        "order_date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
+        "estimated_delivery": (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d"),
+        "tracking_number": "TRK987654321"
+    },
+    "ORD12346": {
+        "order_id": "ORD12346",
+        "customer_id": "CUST002",
+        "status": "shipped",
+        "items": ["Laptop Stand", "Wireless Mouse"],
+        "total": 145.50,
+        "order_date": (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d"),
+        "estimated_delivery": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
+        "tracking_number": "TRK123456789"
+    },
+    "ORD12347": {
+        "order_id": "ORD12347",
+        "customer_id": "CUST003",
+        "status": "delivered",
+        "items": ["Mechanical Keyboard"],
+        "total": 129.99,
+        "order_date": (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d"),
+        "estimated_delivery": (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d"),
+        "tracking_number": "TRK555666777"
+    },
+    "ORD12348": {
+        "order_id": "ORD12348",
+        "customer_id": "CUST001",
+        "status": "cancelled",
+        "items": ["Phone Case"],
+        "total": 19.99,
+        "order_date": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
+        "estimated_delivery": None,
+        "tracking_number": None
+    },
+    "ORD12349": {
+        "order_id": "ORD12349",
+        "customer_id": "CUST004",
+        "status": "processing",
+        "items": ["Monitor", "HDMI Cable", "Desk Lamp"],
+        "total": 399.99,
+        "order_date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+        "estimated_delivery": (datetime.now() + timedelta(days=4)).strftime("%Y-%m-%d"),
+        "tracking_number": None
+    }
+}
+
+# Fake knowledge base articles
+FAKE_KNOWLEDGE_BASE = [
+    {
+        "article_id": "KB001",
+        "title": "Shipping Information",
+        "category": "shipping",
+        "content": "Our standard shipping takes 3-5 business days. Express shipping is available for an additional $15 fee and delivers within 1-2 business days. Free shipping on orders over $50.",
+        "keywords": ["shipping", "delivery", "standard", "express", "free shipping"]
+    },
+    {
+        "article_id": "KB002",
+        "title": "Return Policy",
+        "category": "returns",
+        "content": "We accept returns within 30 days of purchase. Items must be in original condition with tags attached. Refunds are processed within 5-7 business days after we receive the returned item.",
+        "keywords": ["return", "refund", "policy", "30 days", "original condition"]
+    },
+    {
+        "article_id": "KB003",
+        "title": "Billing and Payment Methods",
+        "category": "billing",
+        "content": "We accept all major credit cards, PayPal, and Apple Pay. Charges appear on your statement as 'ACME STORE'. You can update your payment method in your account settings.",
+        "keywords": ["billing", "payment", "credit card", "paypal", "apple pay"]
+    },
+    {
+        "article_id": "KB004",
+        "title": "Tracking Your Order",
+        "category": "shipping",
+        "content": "Once your order ships, you'll receive a tracking number via email. You can track your package using the tracking link provided or by visiting our order tracking page.",
+        "keywords": ["tracking", "track order", "shipping status", "delivery status"]
+    },
+    {
+        "article_id": "KB005",
+        "title": "Rewards Program",
+        "category": "rewards",
+        "content": "Earn 1 point for every dollar spent. Every 100 points equals $10 in rewards. Points never expire and can be used on any purchase.",
+        "keywords": ["rewards", "points", "loyalty", "earn", "redeem"]
+    },
+    {
+        "article_id": "KB006",
+        "title": "Warranty Information",
+        "category": "warranty",
+        "content": "Most products come with a 1-year manufacturer warranty. Extended warranties are available for purchase. Contact us within the warranty period for any defects or issues.",
+        "keywords": ["warranty", "guarantee", "defect", "manufacturer", "coverage"]
+    },
+    {
+        "article_id": "KB007",
+        "title": "Account Security",
+        "category": "account",
+        "content": "Protect your account by using a strong password and enabling two-factor authentication. Never share your password with anyone. Contact us immediately if you suspect unauthorized access.",
+        "keywords": ["security", "password", "two-factor", "authentication", "account safety"]
+    }
+]
+
+# Store for processed refunds (simulates a refund tracking system)
+PROCESSED_REFUNDS = {}
 
 
 class OrderInfo(TypedDict):
@@ -38,8 +192,22 @@ async def check_order_status(order_info: OrderInfo) -> str:
         A string describing the current order status.
     """
     order_id = order_info["order_id"]
-    # In a real system, this would query a database
-    return f"Order {order_id} is currently being processed and will ship within 2-3 business days."
+    
+    # Look up order in fake data
+    if order_id not in FAKE_ORDERS:
+        return f"Sorry, I couldn't find an order with ID {order_id}. Please check the order number and try again."
+    
+    order = FAKE_ORDERS[order_id]
+    items_str = ", ".join(order["items"])
+    
+    status_messages = {
+        "processing": f"Order {order_id} is currently being processed. Items: {items_str}. Total: ${order['total']:.2f}. Estimated delivery: {order['estimated_delivery']}.",
+        "shipped": f"Order {order_id} has been shipped! Items: {items_str}. Total: ${order['total']:.2f}. Tracking number: {order['tracking_number']}. Estimated delivery: {order['estimated_delivery']}.",
+        "delivered": f"Order {order_id} was delivered on {order['estimated_delivery']}. Items: {items_str}. Total: ${order['total']:.2f}.",
+        "cancelled": f"Order {order_id} has been cancelled. Items: {items_str}. If you have questions about this cancellation, please let me know."
+    }
+    
+    return status_messages.get(order["status"], f"Order {order_id} status: {order['status']}")
 
 
 @function_tool
@@ -53,8 +221,19 @@ async def get_account_balance(account_info: AccountInfo) -> str:
         A string with the account balance information.
     """
     customer_id = account_info["customer_id"]
-    # In a real system, this would query a database
-    return f"Customer {customer_id} has an account balance of $125.50 with $25.00 in rewards points available."
+    
+    # Look up customer in fake data
+    if customer_id not in FAKE_CUSTOMERS:
+        return f"Sorry, I couldn't find a customer account with ID {customer_id}. Please verify the customer ID."
+    
+    customer = FAKE_CUSTOMERS[customer_id]
+    
+    return (f"Account for {customer['name']} (ID: {customer_id}):\n"
+            f"- Account Balance: ${customer['account_balance']:.2f}\n"
+            f"- Rewards Points: ${customer['rewards_points']:.2f} available\n"
+            f"- Email: {customer['email']}\n"
+            f"- Phone: {customer['phone']}\n"
+            f"- Member since: {customer['join_date']}")
 
 
 @function_tool
@@ -69,8 +248,41 @@ async def process_refund(refund_request: RefundRequest) -> str:
     """
     order_id = refund_request["order_id"]
     reason = refund_request["reason"]
-    # In a real system, this would initiate a refund process
-    return f"Refund request for order {order_id} has been initiated. Reason: {reason}. You should see the refund in 5-7 business days."
+    
+    # Check if order exists
+    if order_id not in FAKE_ORDERS:
+        return f"Sorry, I couldn't find an order with ID {order_id}. Please verify the order number."
+    
+    order = FAKE_ORDERS[order_id]
+    
+    # Check if order is eligible for refund
+    if order["status"] == "cancelled":
+        return f"Order {order_id} has already been cancelled. No refund is needed."
+    
+    if order["status"] == "processing":
+        # Can cancel instead of refund
+        refund_amount = order["total"]
+        PROCESSED_REFUNDS[order_id] = {
+            "amount": refund_amount,
+            "reason": reason,
+            "status": "cancelled",
+            "date": datetime.now().strftime("%Y-%m-%d")
+        }
+        return f"Order {order_id} has been cancelled before shipping. Full refund of ${refund_amount:.2f} will be processed within 3-5 business days. Reason: {reason}"
+    
+    # Process refund for shipped/delivered orders
+    refund_amount = order["total"]
+    PROCESSED_REFUNDS[order_id] = {
+        "amount": refund_amount,
+        "reason": reason,
+        "status": "refund_initiated",
+        "date": datetime.now().strftime("%Y-%m-%d")
+    }
+    
+    return (f"Refund request for order {order_id} has been initiated. "
+            f"Amount: ${refund_amount:.2f}. Reason: {reason}. "
+            f"You should see the refund in your account within 5-7 business days. "
+            f"Please return the items using the prepaid shipping label we'll email you.")
 
 
 @function_tool
@@ -84,9 +296,35 @@ def search_knowledge_base(ctx: RunContextWrapper[Any], query: str, category: str
     Returns:
         Relevant information from the knowledge base.
     """
-    # In a real system, this would perform a semantic search on a knowledge base
-    category_str = f" in category '{category}'" if category else ""
-    return f"Found 3 articles matching '{query}'{category_str}. Top result: Our standard shipping takes 3-5 business days. Express shipping is available for an additional fee."
+    query_lower = query.lower()
+    matching_articles = []
+    
+    for article in FAKE_KNOWLEDGE_BASE:
+        # Check category filter
+        if category and article["category"] != category.lower():
+            continue
+        
+        # Check if query matches title, content, or keywords
+        if (query_lower in article["title"].lower() or 
+            query_lower in article["content"].lower() or 
+            any(query_lower in keyword.lower() for keyword in article["keywords"])):
+            matching_articles.append(article)
+    
+    if not matching_articles:
+        category_str = f" in category '{category}'" if category else ""
+        return f"No articles found matching '{query}'{category_str}. Please try different search terms or contact us for direct assistance."
+    
+    # Return the top matching article(s)
+    if len(matching_articles) == 1:
+        article = matching_articles[0]
+        return f"Found 1 article matching '{query}':\n\n**{article['title']}**\n{article['content']}"
+    else:
+        result = f"Found {len(matching_articles)} articles matching '{query}':\n\n"
+        for i, article in enumerate(matching_articles[:3], 1):  # Show top 3
+            result += f"{i}. **{article['title']}** ({article['category']})\n   {article['content']}\n\n"
+        if len(matching_articles) > 3:
+            result += f"...and {len(matching_articles) - 3} more articles."
+        return result
 
 
 @function_tool
@@ -101,15 +339,30 @@ async def update_customer_contact(ctx: RunContextWrapper[Any], customer_id: str,
     Returns:
         Confirmation of the contact information update.
     """
+    # Check if customer exists
+    if customer_id not in FAKE_CUSTOMERS:
+        return f"Sorry, I couldn't find a customer account with ID {customer_id}. Please verify the customer ID."
+    
+    if not email and not phone:
+        return "Please provide at least one contact detail to update (email or phone)."
+    
+    customer = FAKE_CUSTOMERS[customer_id]
     updates = []
+    
     if email:
-        updates.append(f"email to {email}")
+        old_email = customer["email"]
+        customer["email"] = email
+        updates.append(f"email from {old_email} to {email}")
+    
     if phone:
-        updates.append(f"phone to {phone}")
+        old_phone = customer["phone"]
+        customer["phone"] = phone
+        updates.append(f"phone from {old_phone} to {phone}")
     
     update_str = " and ".join(updates)
-    # In a real system, this would update the database
-    return f"Successfully updated {update_str} for customer {customer_id}."
+    
+    return (f"Successfully updated {update_str} for {customer['name']} (ID: {customer_id}). "
+            f"You'll receive a confirmation email at your updated address.")
 
 
 class CustomerServiceAgent:
