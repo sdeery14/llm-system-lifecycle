@@ -437,6 +437,75 @@ if __name__ == "__main__":
     import asyncio
     from agents import Runner
     
+    async def run_automated_tests():
+        """Run simple automated tests to verify the agent is working."""
+        print("\n" + "=" * 60)
+        print("Running Automated Tests")
+        print("=" * 60 + "\n")
+        
+        cs_agent = CustomerServiceAgent()
+        agent = cs_agent.get_agent()
+        
+        test_cases = [
+            {
+                "name": "Test 1: Check Order Status",
+                "query": "Can you check the status of order ORD12345?",
+                "expected_keywords": ["ORD12345", "processing", "Wireless Headphones"]
+            },
+            {
+                "name": "Test 2: Get Account Balance",
+                "query": "What is the account balance for customer CUST002?",
+                "expected_keywords": ["CUST002", "Bob Smith", "rewards"]
+            },
+            {
+                "name": "Test 3: Search Knowledge Base",
+                "query": "How long does shipping take?",
+                "expected_keywords": ["shipping", "3-5", "business days"]
+            },
+            {
+                "name": "Test 4: Process Refund",
+                "query": "I need to request a refund for order ORD12347 because the item was defective.",
+                "expected_keywords": ["refund", "ORD12347", "initiated"]
+            }
+        ]
+        
+        passed_tests = 0
+        failed_tests = 0
+        
+        for i, test in enumerate(test_cases, 1):
+            print(f"{test['name']}")
+            print(f"Query: {test['query']}")
+            
+            try:
+                # Run the agent
+                result = await Runner.run(agent, test['query'])
+                response = result.final_output
+                
+                print(f"Response: {response[:150]}..." if len(response) > 150 else f"Response: {response}")
+                
+                # Check if expected keywords are in the response
+                keywords_found = [kw for kw in test['expected_keywords'] if kw.lower() in response.lower()]
+                
+                if len(keywords_found) >= len(test['expected_keywords']) * 0.6:  # At least 60% of keywords
+                    print("✓ PASSED")
+                    passed_tests += 1
+                else:
+                    print(f"✗ FAILED - Expected keywords not found. Found: {keywords_found}")
+                    failed_tests += 1
+                    
+            except Exception as e:
+                print(f"✗ FAILED - Error: {e}")
+                failed_tests += 1
+            
+            print("-" * 60 + "\n")
+        
+        # Print summary
+        print("=" * 60)
+        print(f"Test Summary: {passed_tests} passed, {failed_tests} failed out of {len(test_cases)} total")
+        print("=" * 60 + "\n")
+        
+        return passed_tests == len(test_cases)
+    
     async def interactive_chat():
         """Run an interactive CLI chat with the customer service agent."""
         # Create the customer service agent
@@ -493,5 +562,21 @@ if __name__ == "__main__":
                 print(f"\nError: {e}\n")
                 continue
     
-    # Run the interactive chat
-    asyncio.run(interactive_chat())
+    async def main():
+        """Main entry point that runs tests first, then interactive chat."""
+        # Run automated tests
+        tests_passed = await run_automated_tests()
+        
+        if not tests_passed:
+            print("⚠️  Warning: Some tests failed. The agent may not be functioning correctly.")
+            print("Do you want to continue to interactive chat anyway? (y/n): ", end="")
+            response = input().strip().lower()
+            if response != 'y':
+                print("Exiting.")
+                return
+        
+        # Run interactive chat
+        await interactive_chat()
+    
+    # Run the main function
+    asyncio.run(main())
