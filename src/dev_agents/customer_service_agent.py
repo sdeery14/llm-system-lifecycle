@@ -181,12 +181,64 @@ class CustomerServiceAgent:
 
 # Example usage
 if __name__ == "__main__":
-    # Create the customer service agent
-    cs_agent = CustomerServiceAgent()
+    import asyncio
+    from agents import Runner
     
-    # List all available tools
-    cs_agent.list_tools()
+    async def interactive_chat():
+        """Run an interactive CLI chat with the customer service agent."""
+        # Create the customer service agent
+        cs_agent = CustomerServiceAgent()
+        agent = cs_agent.get_agent()
+        
+        print("\n" + "=" * 60)
+        print("Customer Service Chat")
+        print("=" * 60)
+        print("Type your questions or requests below.")
+        print("Type 'quit', 'exit', or 'bye' to end the conversation.")
+        print("=" * 60 + "\n")
+        
+        # Initialize conversation history
+        conversation_history = None
+        
+        while True:
+            try:
+                # Get user input
+                user_input = input("You: ").strip()
+                
+                # Check for exit commands
+                if user_input.lower() in ['quit', 'exit', 'bye']:
+                    print("\nThank you for contacting customer service. Goodbye!")
+                    break
+                
+                # Skip empty input
+                if not user_input:
+                    continue
+                
+                # Prepare the input for the agent
+                if conversation_history is None:
+                    # First turn - just pass the user message
+                    agent_input = user_input
+                else:
+                    # Subsequent turns - use to_input_list() to maintain history
+                    agent_input = conversation_history.to_input_list() + [
+                        {"role": "user", "content": user_input}
+                    ]
+                
+                # Run the agent
+                result = await Runner.run(agent, agent_input)
+                
+                # Update conversation history for next turn
+                conversation_history = result
+                
+                # Display agent response
+                print(f"\nAgent: {result.final_output}\n")
+                
+            except KeyboardInterrupt:
+                print("\n\nInterrupted. Thank you for contacting customer service. Goodbye!")
+                break
+            except Exception as e:
+                print(f"\nError: {e}\n")
+                continue
     
-    # You can access the agent for use in your application
-    agent = cs_agent.get_agent()
-    print(f"\nAgent '{agent.name}' is ready to assist customers!")
+    # Run the interactive chat
+    asyncio.run(interactive_chat())
