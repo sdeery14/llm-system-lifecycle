@@ -4,255 +4,124 @@ MLflow Agent Lifecycle Script
 This script demonstrates the complete lifecycle of logging, registering, promoting,
 and serving the customer service agent using MLflow following the ResponsesAgent pattern.
 
+The script uses a template-based approach:
+1. Reads the MLflow wrapper template from scripts/templates/
+2. Combines it with the actual agent class from src/dev_agents/
+3. Saves the combined file to scripts/logged_agents/ for MLflow logging
+
 Based on: https://mlflow.org/docs/3.4.0/genai/serving/responses-agent/#logging-and-serving
 """
 
 import os
-import sys
-import asyncio
-from typing import Generator
 from pathlib import Path
 
 import mlflow
-from mlflow.entities import SpanType
-from mlflow.pyfunc import ResponsesAgent
-from mlflow.types.responses import (
-    ResponsesAgentRequest,
-    ResponsesAgentResponse,
-    ResponsesAgentStreamEvent,
-)
 from dotenv import load_dotenv
-
-# Add the src directory to the path so we can import the customer service agent
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / "src"))
-
-from dev_agents.customer_service_agent import CustomerServiceAgent
-from agents import Runner
 
 # Load environment variables
 load_dotenv()
 
-
-class CustomerServiceResponsesAgent(ResponsesAgent):
-    """
-    MLflow ResponsesAgent wrapper for the CustomerServiceAgent.
-    
-    This class adapts the OpenAI Agents SDK-based customer service agent
-    to the MLflow ResponsesAgent interface for logging and serving.
-    """
-    
-    def __init__(self, model: str = "gpt-4o"):
-        """
-        Initialize the customer service responses agent.
-        
-        Args:
-            model: The OpenAI model to use for the agent (default: gpt-4o).
-        """
-        self.model = model
-        self.customer_service_agent = CustomerServiceAgent(model=model)
-        self.agent = self.customer_service_agent.get_agent()
-    
-    @mlflow.trace(span_type=SpanType.AGENT)
-    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
-        """
-        Process a request and return a structured response.
-        
-        Args:
-            request: The request containing input messages and context.
-        
-        Returns:
-            A ResponsesAgentResponse with the agent's output.
-        """
-        # Convert input messages to the format expected by OpenAI Agents SDK
-        input_messages = []
-        for msg in request.input:
-            msg_dict = msg.model_dump() if hasattr(msg, 'model_dump') else msg
-            input_messages.append(msg_dict)
-        
-        # For the first message, just pass the content as a string
-        if len(input_messages) == 1 and input_messages[0].get("role") == "user":
-            query = input_messages[0].get("content", "")
-        else:
-            # For multi-turn conversations, we need to format properly
-            query = input_messages
-        
-        # Run the agent synchronously using asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        result = loop.run_until_complete(Runner.run(self.agent, query))
-        
-        # Extract the final output
-        final_output = result.final_output
-        
-        # Create a text output item
-        output_item = self.create_text_output_item(
-            text=final_output,
-            id=f"msg_{id(result)}"
-        )
-        
-        # Return the response with custom outputs if available
-        return ResponsesAgentResponse(
-            output=[output_item],
-            custom_outputs=request.custom_inputs if hasattr(request, 'custom_inputs') else None
-        )
-    
-    @mlflow.trace(span_type=SpanType.AGENT)
-    def predict_stream(
-        self, request: ResponsesAgentRequest
-    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
-        """
-        Process a request and stream the response.
-        
-        Args:
-            request: The request containing input messages and context.
-        
-        Yields:
-            ResponsesAgentStreamEvent objects as the response is generated.
-        """
-        # For simplicity, we'll convert the non-streaming response to a stream
-        response = self.predict(request)
-        
-        # Stream the output text in chunks
-        item_id = f"msg_{id(response)}"
-        text = response.output[0]["content"][0]["text"]
-        
-        # Split text into chunks for streaming
-        chunk_size = 20
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i:i + chunk_size]
-            yield ResponsesAgentStreamEvent(
-                **self.create_text_delta(delta=chunk, item_id=item_id)
-            )
-        
-        # Yield the final done event
-        yield ResponsesAgentStreamEvent(
-            type="response.output_item.done",
-            item=self.create_text_output_item(text=text, id=item_id)
-        )
+# Set up paths
+project_root = Path(__file__).parent.parent
+scripts_dir = Path(__file__).parent
+logged_agents_dir = scripts_dir / "logged_agents"
+templates_dir = scripts_dir / "templates"
 
 
-def save_agent_to_file():
+def create_agent_file_from_template(
+    agent_source_file: Path,
+    agent_class_name: str,
+    output_name: str = "mlflow_agent"
+) -> Path:
     """
-    Save the agent class to a separate file for models-from-code logging.
+    Create an MLflow-compatible agent file by combining the template wrapper
+    with the actual agent class code.
     
-    This is required by MLflow's models-from-code approach.
+    Args:
+        agent_source_file: Path to the source agent file (e.g., customer_service_agent.py).
+        agent_class_name: Name of the agent class to wrap (e.g., "CustomerServiceAgent").
+        output_name: Name for the output file (without .py extension).
+    
+    Returns:
+        Path to the created agent file.
     """
-    agent_code = '''"""
-Customer Service ResponsesAgent for MLflow serving.
+    # Read the template wrapper
+    template_file = templates_dir / "mlflow_responses_agent_wrapper.py"
+    with open(template_file, 'r') as f:
+        wrapper_code = f.read()
+    
+    # Extract the relative import path for the agent
+    # E.g., src/dev_agents/customer_service_agent.py -> dev_agents.customer_service_agent
+    relative_to_src = agent_source_file.relative_to(project_root / "src")
+    module_path = str(relative_to_src.with_suffix('')).replace(os.sep, '.')
+    
+    # Extract imports and class from template
+    # We need to skip the path setup section but keep everything else
+    lines = wrapper_code.split('\n')
+    
+    # Find the start of imports (after docstring)
+    imports_start = 0
+    for i, line in enumerate(lines):
+        if line.startswith('import ') or line.startswith('from '):
+            imports_start = i
+            break
+    
+    # Find where the path setup section starts and ends
+    path_setup_start = -1
+    path_setup_end = -1
+    for i, line in enumerate(lines):
+        if '# Add the src directory to the path' in line:
+            path_setup_start = i
+        elif path_setup_start != -1 and (line.startswith('# Load environment') or line.startswith('load_dotenv')):
+            path_setup_end = i + 1  # Include load_dotenv() line
+            break
+    
+    # Extract template content, excluding the path setup section
+    if path_setup_start != -1 and path_setup_end != -1:
+        template_content = '\n'.join(lines[imports_start:path_setup_start] + lines[path_setup_end:])
+    else:
+        # Fallback: use everything from imports onward
+        template_content = '\n'.join(lines[imports_start:])
+    
+    # Create the combined agent file
+    combined_code = f'''"""
+MLflow-compatible {agent_class_name} for serving.
+
+This file is auto-generated by combining the template wrapper with the actual agent.
 """
 
 import sys
-import asyncio
-from typing import Generator
 from pathlib import Path
 
-import mlflow
-from mlflow.entities import SpanType
-from mlflow.pyfunc import ResponsesAgent
-from mlflow.types.responses import (
-    ResponsesAgentRequest,
-    ResponsesAgentResponse,
-    ResponsesAgentStreamEvent,
-)
-from dotenv import load_dotenv
-
 # Add the src directory to the path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from dev_agents.customer_service_agent import CustomerServiceAgent
-from agents import Runner
+# Import the agent class
+from {module_path} import {agent_class_name}
 
-# Load environment variables
-load_dotenv()
+# Template code (imports and wrapper class)
+{template_content}
 
-
-class CustomerServiceResponsesAgent(ResponsesAgent):
-    """MLflow ResponsesAgent wrapper for the CustomerServiceAgent."""
-    
-    def __init__(self, model: str = "gpt-4o"):
-        self.model = model
-        self.customer_service_agent = CustomerServiceAgent(model=model)
-        self.agent = self.customer_service_agent.get_agent()
-    
-    @mlflow.trace(span_type=SpanType.AGENT)
-    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
-        """Process a request and return a structured response."""
-        # Convert input messages
-        input_messages = []
-        for msg in request.input:
-            msg_dict = msg.model_dump() if hasattr(msg, 'model_dump') else msg
-            input_messages.append(msg_dict)
-        
-        # For the first message, just pass the content as a string
-        if len(input_messages) == 1 and input_messages[0].get("role") == "user":
-            query = input_messages[0].get("content", "")
-        else:
-            query = input_messages
-        
-        # Run the agent synchronously
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        result = loop.run_until_complete(Runner.run(self.agent, query))
-        final_output = result.final_output
-        
-        # Create output
-        output_item = self.create_text_output_item(
-            text=final_output,
-            id=f"msg_{id(result)}"
-        )
-        
-        return ResponsesAgentResponse(
-            output=[output_item],
-            custom_outputs=request.custom_inputs if hasattr(request, 'custom_inputs') else None
-        )
-    
-    @mlflow.trace(span_type=SpanType.AGENT)
-    def predict_stream(
-        self, request: ResponsesAgentRequest
-    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
-        """Process a request and stream the response."""
-        response = self.predict(request)
-        item_id = f"msg_{id(response)}"
-        text = response.output[0]["content"][0]["text"]
-        
-        # Stream in chunks
-        chunk_size = 20
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i:i + chunk_size]
-            yield ResponsesAgentStreamEvent(
-                **self.create_text_delta(delta=chunk, item_id=item_id)
-            )
-        
-        # Final done event
-        yield ResponsesAgentStreamEvent(
-            type="response.output_item.done",
-            item=self.create_text_output_item(text=text, id=item_id)
-        )
-
-
-# Create the agent instance for MLflow to use
+# Create the specific agent instance using the wrapper
 from mlflow.models import set_model
 
-agent = CustomerServiceResponsesAgent(model="gpt-4o")
+agent = MLflowResponsesAgentWrapper(
+    agent_class={agent_class_name},
+    model="gpt-4o"
+)
 set_model(agent)
 '''
     
-    # Save to scripts directory
-    agent_file_path = project_root / "scripts" / "customer_service_responses_agent.py"
-    with open(agent_file_path, 'w') as f:
-        f.write(agent_code)
+    # Ensure the logged_agents directory exists
+    logged_agents_dir.mkdir(parents=True, exist_ok=True)
     
-    return agent_file_path
+    # Save the combined file
+    output_file = logged_agents_dir / f"{output_name}.py"
+    with open(output_file, 'w') as f:
+        f.write(combined_code)
+    
+    return output_file
 
 
 def log_agent():
@@ -266,9 +135,17 @@ def log_agent():
     print("STEP 1: Logging Agent to MLflow")
     print("=" * 70)
     
-    # Save agent to file first
-    agent_file = save_agent_to_file()
-    print(f"✓ Saved agent code to: {agent_file}")
+    # Create agent file from template
+    agent_source = project_root / "src" / "dev_agents" / "customer_service_agent.py"
+    agent_file = create_agent_file_from_template(
+        agent_source_file=agent_source,
+        agent_class_name="CustomerServiceAgent",
+        output_name="customer_service_mlflow_agent"
+    )
+    print(f"✓ Created agent file: {agent_file}")
+    
+    # Get the relative path from project root for MLflow
+    relative_agent_path = agent_file.relative_to(project_root)
     
     # Print MLflow tracking URI
     print(f"✓ MLflow tracking URI: {mlflow.get_tracking_uri()}")
@@ -284,7 +161,7 @@ def log_agent():
         
         # Log the agent using models-from-code
         logged_agent_info = mlflow.pyfunc.log_model(
-            python_model="scripts/customer_service_responses_agent.py",
+            python_model=str(relative_agent_path),
             artifact_path="agent",
             pip_requirements=[
                 "mlflow>=3.4.0",

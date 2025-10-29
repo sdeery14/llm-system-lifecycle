@@ -96,7 +96,7 @@ def get_kb_store():
     global _kb_store
     if _kb_store is None:
         _kb_store = FaissVectorStore()
-        texts = [f"{a[\'title\']}: {a[\'content\']}" for a in KNOWLEDGE_BASE]
+        texts = [f"{a['title']}: {a['content']}" for a in KNOWLEDGE_BASE]
         _kb_store.add_texts(texts, KNOWLEDGE_BASE)
     return _kb_store
 
@@ -115,11 +115,11 @@ async def check_order_status(order_info: OrderInfo) -> str:
         return f"Order {order_id} not found."
     
     order = FAKE_ORDERS[order_id]
-    return f"Order {order_id}: {order[\'status\']}. Items: {\', \'.join(order[\'items\'])}. Total: ${order[\'total\']:.2f}"
+    return f"Order {order_id}: {order['status']}. Items: {', '.join(order['items'])}. Total: ${order['total']:.2f}"
 
 
 @function_tool
-def search_knowledge_base(ctx, query: str, k: int = 2) -> str:
+def search_knowledge_base(query: str, k: int = 2) -> str:
     """Search knowledge base."""
     store = get_kb_store()
     hits = store.search(query, k=k)
@@ -129,7 +129,7 @@ def search_knowledge_base(ctx, query: str, k: int = 2) -> str:
     
     result = f"Found {len(hits)} articles:\n\n"
     for i, (doc, meta, score) in enumerate(hits, 1):
-        result += f"{i}. **{meta[\'title\']}**\n   {meta[\'content\']}\n\n"
+        result += f"{i}. **{meta['title']}**\n   {meta['content']}\n\n"
     return result
 
 
@@ -155,7 +155,7 @@ class CustomerServiceMLflowAgent(ResponsesAgent):
         # Extract messages
         input_messages = []
         for msg in request.input:
-            msg_dict = msg.model_dump() if hasattr(msg, \'model_dump\') else msg
+            msg_dict = msg.model_dump() if hasattr(msg, 'model_dump') else msg
             input_messages.append(msg_dict)
         
         # Simple case: single user message
