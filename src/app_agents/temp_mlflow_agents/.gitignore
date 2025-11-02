@@ -1,0 +1,6 @@
+# Ignore all generated MLflow agent files
+*_mlflow.py
+
+# Keep tracking files
+!.gitignore
+!README.md
