@@ -9,6 +9,7 @@ and creates and stores datasets in MLflow.
 from __future__ import annotations
 import os
 import asyncio
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,60 @@ class DatasetBuilderConfig(BaseModel):
 
 # ==================== PYDANTIC MODELS ====================
 
+class TestCaseInputs(BaseModel):
+    """Input structure for a single test case."""
+    model_config = ConfigDict(extra='forbid', strict=True)
+    
+    query: str = Field(
+        description="The user query or input text"
+    )
+    context: str = Field(
+        default="",
+        description="Any relevant context for the query (optional)"
+    )
+    category: str = Field(
+        description="Category name this test case belongs to"
+    )
+    test_scenario: str = Field(
+        description="Brief description of what this test case tests"
+    )
+
+
+class TestCaseExpectations(BaseModel):
+    """Expected outputs/behaviors for a test case."""
+    model_config = ConfigDict(extra='forbid', strict=True)
+    
+    answer: str = Field(
+        default="",
+        description="Expected answer or response text"
+    )
+    tool_calls: list[str] = Field(
+        default_factory=list,
+        description="List of expected tool names the agent should call"
+    )
+
+
+class TestCase(BaseModel):
+    """A single test case with inputs and expectations."""
+    model_config = ConfigDict(extra='forbid', strict=True)
+    
+    inputs: TestCaseInputs = Field(
+        description="Test case inputs"
+    )
+    expectations: TestCaseExpectations = Field(
+        description="Expected outputs/behaviors"
+    )
+
+
+class TestCaseBatch(BaseModel):
+    """A batch of generated test cases."""
+    model_config = ConfigDict(extra='forbid', strict=True)
+    
+    test_cases: list[TestCase] = Field(
+        description="List of generated test cases"
+    )
+
+
 class DatasetCategory(BaseModel):
     """Definition of a dataset category with all required fields."""
     model_config = ConfigDict(extra='forbid')
@@ -118,7 +173,18 @@ class DatasetCategory(BaseModel):
     )
     expectations: str = Field(
         ..., 
-        description="Expected outputs/behaviors for this category (describe as text or JSON string)"
+        description=(
+            "Expected outputs/behaviors for this category. "
+            "Can be a JSON string with 'answer' and 'tool_calls' fields for agent evaluation. "
+            "Example: {\"answer\": \"expected response\", \"tool_calls\": [\"tool1\", \"tool2\"]}"
+        )
+    )
+    expected_tools: list[str] | None = Field(
+        default=None,
+        description=(
+            "List of tool names the agent should call for this category. "
+            "This will be merged into expectations as 'tool_calls' during dataset creation."
+        )
     )
     
     @field_validator('count')
@@ -402,10 +468,10 @@ async def _generate_batch_with_worker(
     batch_index: int = 0
 ) -> list[dict[str, Any]]:
     """
-    Generate a batch of test cases using a worker agent with fresh context.
+    Generate a batch of test cases using a worker agent with structured outputs.
     
-    This function creates a separate worker agent with minimal context to avoid
-    context window issues when generating large datasets.
+    This function creates a separate worker agent that uses Pydantic-defined output types
+    to generate properly structured test cases with guaranteed JSON schema compliance.
     
     Args:
         category: Category information including name, description, examples, expectations.
@@ -416,6 +482,23 @@ async def _generate_batch_with_worker(
     Returns:
         List of generated test cases.
     """
+    # Parse expectations if it's a JSON string
+    expectations_data = category.get('expectations', {})
+    if isinstance(expectations_data, str):
+        try:
+            expectations_data = json.loads(expectations_data)
+        except (json.JSONDecodeError, ValueError):
+            # If it's not valid JSON, create a simple dict with the string as answer
+            expectations_data = {"answer": expectations_data}
+    elif not isinstance(expectations_data, dict):
+        # If it's neither string nor dict, wrap it
+        expectations_data = {"answer": str(expectations_data)}
+    
+    # Add tool_calls if provided in category (for agent evaluation)
+    if category.get('expected_tools') and 'tool_calls' not in expectations_data:
+        expectations_data['tool_calls'] = category['expected_tools']
+    
+    # Build the worker instructions
     worker_instructions = f"""You are a test case generator. Your task is to generate {num_cases} diverse, 
 realistic test cases for the following category:
 
@@ -428,67 +511,55 @@ Requirements:
 2. Make each case unique and realistic
 3. Vary the input patterns, edge cases, and scenarios
 4. Follow the category description and examples
-5. Return test cases in JSON format
+5. Each test case should test different aspects or edge cases
 
-Each test case should have this structure (MLflow only supports "inputs" and "expectations"):
-{{
-    "inputs": {{
-        "query": "the user query or input",
-        "context": "any relevant context (optional)",
-        "category": "{category['name']}",
-        "test_scenario": "brief description of what this tests"
-    }},
-    "expectations": {category.get('expectations', {})}
-}}
+For each test case:
+- The "query" should be a realistic user input
+- The "context" can provide additional context if needed (can be empty)
+- The "category" must be "{category['name']}"
+- The "test_scenario" should briefly describe what specific aspect this test covers
 
-Generate diverse, realistic test cases that would thoroughly test an agent's capabilities.
-Output only valid JSON array of test cases, no additional text."""
+Expected behavior for this category:
+{json.dumps(expectations_data, indent=2)}
 
-    # Create a worker agent with minimal context
+Generate diverse, realistic test cases that would thoroughly test an agent's capabilities."""
+
+    # Create a worker agent with structured output type
     worker = Agent(
         name=f"TestCaseWorker_{category['name']}_{batch_index}",
         model=worker_model,
-        instructions=worker_instructions
+        instructions=worker_instructions,
+        output_type=TestCaseBatch  # Use Pydantic model for structured outputs
     )
     
-    # Generate test cases
-    # Note: In production, this would parse JSON from the LLM response
-    _ = await Runner.run(worker, f"Generate {num_cases} test cases for category '{category['name']}'")
+    # Generate test cases with structured outputs
+    result = await Runner.run(
+        worker, 
+        f"Generate {num_cases} diverse test cases for category '{category['name']}'"
+    )
     
-    # Parse the result - in a real implementation, this would parse JSON from the LLM
-    # For now, we'll create structured test cases
+    # Extract the structured output
+    test_case_batch = result.final_output
+    
+    # Convert Pydantic models to dicts for MLflow compatibility
     generated_cases = []
-    
-    # Parse expectations if it's a JSON string
-    expectations_data = category.get('expectations', {})
-    if isinstance(expectations_data, str):
-        try:
-            import json
-            expectations_data = json.loads(expectations_data)
-        except (json.JSONDecodeError, ValueError):
-            # If it's not valid JSON, create a simple dict with the string as description
-            expectations_data = {"description": expectations_data}
-    elif not isinstance(expectations_data, dict):
-        # If it's neither string nor dict, wrap it
-        expectations_data = {"value": str(expectations_data)}
-    
-    for i in range(num_cases):
-        # MLflow datasets only support "inputs" and "expectations" fields
-        # Store metadata fields in the inputs section for tracking
-        test_case = {
-            "inputs": {
-                "query": f"Test query {batch_index * num_cases + i + 1} for {category['name']}",
-                "context": category.get('description', ''),
-                "category": category['name'],  # Moved from metadata to inputs
-                "test_scenario": f"{category['description']} - variation {i + 1}",  # Moved from metadata
-            },
-            "expectations": expectations_data
+    for test_case in test_case_batch.test_cases:
+        # Convert to dict and clean up empty defaults
+        expectations_dict = test_case.expectations.model_dump()
+        # Remove empty defaults to keep the output clean
+        if not expectations_dict.get('answer'):
+            expectations_dict.pop('answer', None)
+        if not expectations_dict.get('tool_calls'):
+            expectations_dict.pop('tool_calls', None)
+        
+        case_dict = {
+            "inputs": test_case.inputs.model_dump(),
+            "expectations": expectations_dict
         }
-        generated_cases.append(test_case)
+        generated_cases.append(case_dict)
     
     # Debug: Verify structure is correct
     if generated_cases:
-        import json
         print(f"\n[DEBUG] Generated {len(generated_cases)} test cases for '{category['name']}'")
         print(f"[DEBUG] First case structure: {json.dumps(generated_cases[0], indent=2)}")
         print(f"[DEBUG] Keys in first case: {list(generated_cases[0].keys())}\n")
@@ -548,7 +619,11 @@ def _create_mlflow_agent_file(
     output_dir: Path
 ) -> Path:
     """
-    Create an MLflow-compatible agent file using the template wrapper.
+    Create a self-contained MLflow-compatible agent file by inlining all dependencies.
+    
+    This function uses AST parsing to properly extract and combine the source agent
+    file with the MLflow wrapper template, creating a single file with no external 
+    dependencies (except pip packages).
     
     Args:
         agent_file_path: Path to the source agent file (relative to project root).
@@ -561,115 +636,114 @@ def _create_mlflow_agent_file(
     project_root = Path(__file__).parent.parent.parent
     templates_dir = project_root / "scripts" / "templates"
     
-    # Read the template wrapper
-    template_file = templates_dir / "mlflow_responses_agent_wrapper.py"
-    with open(template_file, 'r') as f:
-        wrapper_code = f.read()
+    # Helper function to extract code using AST
+    def extract_code_ast(source_file: Path) -> tuple[list[str], str]:
+        """Extract imports and code from file using AST parsing."""
+        with open(source_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Parse the AST
+        tree = ast.parse(source)
+        
+        # Separate imports from other code
+        imports = []
+        code_nodes = []
+        
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                # Only include top-level imports
+                imports.append(ast.unparse(node))
+            elif isinstance(node, ast.If):
+                # Skip if __name__ == "__main__" blocks
+                if (isinstance(node.test, ast.Compare) and
+                    isinstance(node.test.left, ast.Name) and
+                    node.test.left.id == '__name__'):
+                    continue
+                else:
+                    code_nodes.append(node)
+            else:
+                code_nodes.append(node)
+        
+        # Unparse the code nodes back to source
+        code_lines = []
+        for node in code_nodes:
+            try:
+                code_lines.append(ast.unparse(node))
+            except Exception:
+                # Skip nodes that can't be unparsed
+                pass
+        
+        code = '\n\n'.join(code_lines)
+        return imports, code
     
-    # Extract the relative import path for the agent
-    # E.g., src/dev_agents/customer_service_agent.py -> dev_agents.customer_service_agent
+    # Read and parse source files
     agent_source_path = project_root / agent_file_path
-    relative_to_src = agent_source_path.relative_to(project_root / "src")
-    module_path = str(relative_to_src.with_suffix('')).replace(os.sep, '.')
+    template_file = templates_dir / "mlflow_responses_agent_wrapper.py"
     
-    # Extract template content, excluding the path setup section
-    lines = wrapper_code.split('\n')
+    agent_imports, agent_code = extract_code_ast(agent_source_path)
+    wrapper_imports, wrapper_code = extract_code_ast(template_file)
     
-    # Find the start of imports (after docstring)
-    imports_start = 0
-    for i, line in enumerate(lines):
-        if line.startswith('import ') or line.startswith('from '):
-            imports_start = i
-            break
+    # Combine imports (deduplicate while preserving order)
+    all_imports = list(dict.fromkeys(agent_imports + wrapper_imports))
     
-    # Find where the path setup section starts and ends
-    path_setup_start = -1
-    path_setup_end = -1
-    for i, line in enumerate(lines):
-        if '# Add the src directory to the path' in line:
-            path_setup_start = i
-        elif path_setup_start != -1 and (line.startswith('# Load environment') or line.startswith('load_dotenv')):
-            path_setup_end = i + 1  # Include load_dotenv() line
-            break
+    # Separate future imports
+    future_imports = [imp for imp in all_imports if imp.startswith('from __future__')]
+    regular_imports = [imp for imp in all_imports if not imp.startswith('from __future__')]
     
-    # Extract template content, excluding the path setup section
-    if path_setup_start != -1 and path_setup_end != -1:
-        template_content = '\n'.join(lines[imports_start:path_setup_start] + lines[path_setup_end:])
-    else:
-        # Fallback: use everything from imports onward
-        template_content = '\n'.join(lines[imports_start:])
+    # Build the final file
+    parts = [
+        '"""',
+        f'MLflow-compatible {agent_class_name} for serving.',
+        '',
+        'This file is auto-generated by the Dataset Builder Agent.',
+        'All dependencies are inlined to avoid import issues when served by MLflow.',
+        '"""',
+        ''
+    ]
     
-    # Create the combined agent file
-    combined_code = f'''"""
-MLflow-compatible {agent_class_name} for serving.
-
-This file is auto-generated by the Dataset Builder Agent.
-"""
-
-import sys
-import os
-from pathlib import Path
-
-# Add the src directory to the path so we can import from dev_agents, app_agents, etc.
-# This file is in src/app_agents/temp_mlflow_agents/
-# We need to add the src directory to sys.path
-
-# Try multiple methods to find the src directory
-current_file = Path(__file__).resolve()
-
-# Method 1: Go up from this file's location
-src_dir = current_file.parent.parent  # Up 2 levels from temp_mlflow_agents
-
-# Method 2: If we're being imported by MLflow, use the MLFLOW_ARTIFACTS_DESTINATION env var
-if 'MLFLOW_ARTIFACTS_DESTINATION' in os.environ:
-    # MLflow context - infer from artifact path
-    artifact_path = Path(os.environ.get('MLFLOW_ARTIFACTS_DESTINATION', ''))
-    if artifact_path.exists():
-        potential_src = artifact_path.parent.parent / 'src'
-        if potential_src.exists():
-            src_dir = potential_src
-
-# Method 3: Search upward for src directory
-search_path = current_file.parent
-for _ in range(5):  # Search up to 5 levels
-    potential_src = search_path / 'src'
-    if potential_src.exists() and (potential_src / 'dev_agents').exists():
-        src_dir = potential_src
-        break
-    search_path = search_path.parent
-
-# Add src to path if not already there
-src_dir_str = str(src_dir)
-if src_dir_str not in sys.path:
-    sys.path.insert(0, src_dir_str)
-
-# Also add project root to path
-project_root = src_dir.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-# Import the agent class
-from {module_path} import {agent_class_name}
-
-# Template code (imports and wrapper class)
-{template_content}
-
-# Create the specific agent instance using the wrapper
-from mlflow.models import set_model
-
-agent = MLflowResponsesAgentWrapper(
-    agent_class={agent_class_name},
-    model="gpt-4o"
-)
-set_model(agent)
-'''
+    # Add future imports first
+    if future_imports:
+        parts.extend(future_imports)
+        parts.append('')
+    
+    # Add regular imports
+    parts.extend(regular_imports)
+    parts.append('')
+    parts.append('')
+    
+    # Add agent code
+    parts.append('# ==================== AGENT CODE (INLINED) ====================')
+    parts.append('')
+    parts.append(agent_code)
+    parts.append('')
+    parts.append('')
+    
+    # Add wrapper code
+    parts.append('# ==================== MLFLOW WRAPPER ====================')
+    parts.append('')
+    parts.append(wrapper_code)
+    parts.append('')
+    parts.append('')
+    
+    # Add instantiation
+    parts.append('# ==================== AGENT INSTANTIATION ====================')
+    parts.append('')
+    parts.append('from mlflow.models import set_model')
+    parts.append('')
+    parts.append('agent = MLflowResponsesAgentWrapper(')
+    parts.append(f'    agent_class={agent_class_name},')
+    parts.append('    model="gpt-4o"')
+    parts.append(')')
+    parts.append('set_model(agent)')
+    
+    combined_code = '\n'.join(parts)
     
     # Ensure the output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Save the combined file
     output_file = output_dir / f"{agent_class_name.lower()}_mlflow.py"
-    with open(output_file, 'w') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(combined_code)
     
     return output_file
@@ -824,12 +898,17 @@ def analyze_target_agent_metadata(
         
         # Generate suggested test categories based on tools
         if analysis["tools"]:
-            result.append("**Suggested Test Categories:**")
+            result.append("**Suggested Test Categories (with expected tool usage):**")
             for i, tool in enumerate(analysis["tools"], 1):
                 # Derive category from tool name
                 category_name = tool['name'].replace('_', ' ').title()
                 desc = tool['description'] if tool['description'] else "this functionality"
                 result.append(f"{i}. **{category_name}** - Test {desc.lower()}")
+                result.append(f"   Expected tools: [`{tool['name']}`]")
+            result.append("")
+            result.append("💡 **Tip**: Including expected tool calls in your dataset enables MLflow's")
+            result.append("   trace-based evaluation to verify not just the final answer, but also")
+            result.append("   whether the agent used the correct tools to arrive at that answer.")
             result.append("")
         
         # Extract key capabilities from instructions
@@ -1138,9 +1217,19 @@ async def create_dataset_plan(
                 f"({plan.total_instances}). Please adjust the distribution.")
     
     # Store the plan (convert Pydantic models to dicts for state storage)
+    # Merge expected_tools into expectations if provided
+    categories_data = []
+    for cat in plan.categories:
+        cat_dict = cat.model_dump()
+        # If expected_tools is provided, ensure it's included in expectations
+        if cat.expected_tools:
+            # Store expected_tools in the category for worker agents to use
+            cat_dict['expected_tools'] = cat.expected_tools
+        categories_data.append(cat_dict)
+    
     _builder_state.dataset_plan = {
         'name': plan.dataset_name,
-        'categories': [cat.model_dump() for cat in plan.categories],
+        'categories': categories_data,
         'total_instances': plan.total_instances
     }
     _builder_state.total_instances_planned = plan.total_instances
@@ -1159,6 +1248,8 @@ async def create_dataset_plan(
         if cat.example_inputs:
             example_preview = cat.example_inputs[:100] + "..." if len(cat.example_inputs) > 100 else cat.example_inputs
             summary.append(f"   Examples: {example_preview}")
+        if cat.expected_tools:
+            summary.append(f"   Expected Tools: {', '.join(cat.expected_tools)}")
     
     summary.append("\n\nThis plan will be executed in batches of up to 20 test cases at a time.")
     summary.append("\nPlease review and let me know if you'd like to proceed or make changes.")
@@ -1366,14 +1457,25 @@ async def finalize_and_store_dataset(
     print(json.dumps(first_case, indent=2))
     print("="*60 + "\n")
     
-    # Verify all test cases have correct structure (only "inputs" and "expectations")
+    # Verify all test cases have correct structure (must have "inputs" and "expectations")
+    # MLflow may add additional fields like "source" and "tags", which we allow
     for i, case in enumerate(_builder_state.created_instances):
         case_keys = set(case.keys())
-        if case_keys != {"inputs", "expectations"}:
-            return (f"✗ Error: Test case {i+1} has invalid structure.\n"
-                    f"  Expected keys: ['inputs', 'expectations']\n"
+        required_keys = {"inputs", "expectations"}
+        if not required_keys.issubset(case_keys):
+            missing_keys = required_keys - case_keys
+            return (f"✗ Error: Test case {i+1} is missing required fields.\n"
+                    f"  Required keys: {list(required_keys)}\n"
+                    f"  Missing keys: {list(missing_keys)}\n"
                     f"  Actual keys: {list(case_keys)}\n"
-                    f"  This case needs migration. Please use reset_builder_state and regenerate.")
+                    f"  This case needs to be regenerated.")
+        
+        # Additional validation: ensure expectations has the right structure
+        expectations = case.get("expectations", {})
+        if not isinstance(expectations, dict):
+            return (f"✗ Error: Test case {i+1} has invalid expectations structure.\n"
+                    f"  Expectations must be a dictionary, got {type(expectations).__name__}")
+
     
     try:
         # Get or create the experiment
@@ -1634,17 +1736,14 @@ Your workflow:
    - "Should I add/remove/modify any categories?"
    - "How many test cases per category?"
    - "What specific outputs/behaviors should I validate?"
-   Ask the user to review and tweak as needed:
-   - "Are these the right categories?"
-   - "Should I add/remove/modify any categories?"
-   - "How many test cases per category?"
-   - "What specific outputs/behaviors should I validate?"
+   - "Which tools should the agent use for each category?" (for tool usage evaluation)
    
 3. **Refine Requirements Through Discussion**: Based on the user's feedback, have a 
    conversation to refine:
    - Test categories and their descriptions
    - Real-world scenarios and edge cases
-   - Expected behaviors and success criteria
+   - Expected behaviors and success criteria (answer/response)
+   - Expected tool usage patterns (which tools should be called)
    - Distribution of test cases across categories
    
 4. **Create Dataset Plan**: Use create_dataset_plan to formalize the plan. Include:
@@ -1652,7 +1751,13 @@ Your workflow:
    - Categories with descriptions
    - Distribution of test cases
    - Example inputs for each category
-   - Expected outputs/behaviors
+   - Expected outputs/behaviors (in "expectations" field)
+   - Expected tool calls (in "expected_tools" list) - this enables MLflow's trace-based evaluation
+   
+   Note: The expectations can be a JSON string like:
+   {{"answer": "expected response", "tool_calls": ["tool1", "tool2"]}}
+   
+   Or you can use the expected_tools field separately, which will be merged into expectations.
    
 4. **Get Approval**: Present the plan clearly and get user approval using approve_dataset_plan.
 
@@ -1792,7 +1897,7 @@ async def interactive_chat():
                         
                         print(f"\n✓ Selected: {agent_class}")
                         print(f"  Run ID: {run_id}")
-                        print(f"  Moving to dataset creation...\n")
+                        print("  Moving to dataset creation...\n")
                     else:
                         choice = "2"  # Fall through to logging new agent
                 else:

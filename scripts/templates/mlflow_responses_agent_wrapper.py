@@ -7,6 +7,7 @@ The actual agent class will be injected during model logging.
 
 import sys
 import asyncio
+import concurrent.futures
 from typing import Generator
 from pathlib import Path
 
@@ -83,13 +84,15 @@ class MLflowResponsesAgentWrapper(ResponsesAgent):
             query = input_messages
         
         # Run the agent synchronously using asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # Always run in a new thread with a fresh event loop to avoid any conflicts
+        # This ensures clean execution even if called from an existing event loop context
+        def _run_agent():
+            """Run the agent in a new event loop."""
+            return asyncio.run(Runner.run(self.agent, query))
         
-        result = loop.run_until_complete(Runner.run(self.agent, query))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_run_agent)
+            result = future.result(timeout=300)  # 5 minute timeout
         
         # Extract the final output
         final_output = result.final_output
