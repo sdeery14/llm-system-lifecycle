@@ -1,0 +1,9 @@
+include LICENSE
+include README.md
+include PACKAGE_README.md
+include .env.example
+recursive-include src/mlflow_eval_tools *.py
+recursive-include src/app_agents *.py
+recursive-include docs *.md
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]

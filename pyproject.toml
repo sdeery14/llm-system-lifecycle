@@ -1,9 +1,28 @@
 [tool.poetry]
-name = "llm-system-lifecycle"
+name = "mlflow-eval-tools"
 version = "0.1.0"
-description = ""
+description = "Evaluation tools for OpenAI Agents SDK projects - build datasets and run LLM-judge analysis"
 authors = ["Sean Deery <sdeery14@gmail.com>"]
 readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/sdeery14/llm-system-lifecycle"
+repository = "https://github.com/sdeery14/llm-system-lifecycle"
+keywords = ["mlflow", "openai", "agents", "evaluation", "llm", "dataset", "testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+packages = [
+    { include = "mlflow_eval_tools", from = "src" },
+    { include = "app_agents", from = "src" },
+]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.15"
@@ -14,11 +33,15 @@ faiss-cpu = "^1.12.0"
 sentence-transformers = "^5.1.2"
 numpy = "^2.3.4"
 python-dotenv = "^1.2.1"
+click = "^8.1.7"
 
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"
 pytest-asyncio = "^1.2.0"
+
+[tool.poetry.scripts]
+mlflow-eval-tools = "mlflow_eval_tools.cli:cli"
 
 [build-system]
 requires = ["poetry-core"]
