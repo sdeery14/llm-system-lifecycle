@@ -7,7 +7,7 @@ You now have a complete, distributable Python package called **`mlflow-eval-tool
 ## Package Structure
 
 ```
-llm-system-lifecycle/
+mlflow-eval-tools/
 ├── src/
 │   ├── mlflow_eval_tools/          # NEW: Main package
 │   │   ├── __init__.py             # Package initialization
@@ -141,7 +141,7 @@ pip install mlflow_eval_tools-0.1.0-py3-none-any.whl
 
 **Option 2: From Git**
 ```bash
-pip install git+https://github.com/sdeery14/llm-system-lifecycle.git
+pip install git+https://github.com/sdeery14/mlflow-eval-tools.git
 ```
 
 ### Usage

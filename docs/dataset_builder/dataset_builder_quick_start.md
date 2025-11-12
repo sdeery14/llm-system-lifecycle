@@ -36,9 +36,9 @@ if __name__ == "__main__":
 
 **Or run directly:**
 
-```bash
-cd d:/projects/llm-system-lifecycle
-python src/app_agents/dataset_builder.py
+```powershell
+cd d:/projects/mlflow-eval-tools
+poetry shell
 ```
 
 ### 2. Environment Setup

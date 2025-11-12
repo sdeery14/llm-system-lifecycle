@@ -9,8 +9,8 @@ Quick reference for common tasks with `mlflow-eval-tools`.
 pip install mlflow_eval_tools-0.1.0-py3-none-any.whl
 
 # From source
-git clone https://github.com/sdeery14/llm-system-lifecycle.git
-cd llm-system-lifecycle
+git clone https://github.com/sdeery14/mlflow-eval-tools.git
+cd mlflow-eval-tools
 poetry install
 
 # Verify installation
@@ -362,7 +362,7 @@ cat PACKAGE_README.md
 cat docs/QUICK_START_TEAMS.md
 
 # Check issues
-# Visit: https://github.com/sdeery14/llm-system-lifecycle/issues
+# Visit: https://github.com/sdeery14/mlflow-eval-tools/issues
 ```
 
 ## Environment Variables

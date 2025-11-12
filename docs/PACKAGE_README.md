@@ -32,8 +32,8 @@ Build high-quality evaluation datasets and run LLM-judge analysis for agents bui
 
 ```bash
 # Clone the repository
-git clone https://github.com/sdeery14/llm-system-lifecycle.git
-cd llm-system-lifecycle
+git clone https://github.com/sdeery14/mlflow-eval-tools.git
+cd mlflow-eval-tools
 
 # Install with poetry
 poetry install
@@ -439,7 +439,7 @@ MIT License - see LICENSE file for details.
 
 ## Support
 
-- GitHub Issues: https://github.com/sdeery14/llm-system-lifecycle/issues
+- GitHub Issues: https://github.com/sdeery14/mlflow-eval-tools/issues
 - Documentation: See `docs/` folder for detailed guides
 
 ## Acknowledgments

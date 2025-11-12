@@ -94,13 +94,13 @@ pip install mlflow-eval-tools --index-url http://pypi.internal.company.com/simpl
 Teams can install directly from the Git repository:
 
 ```bash
-pip install git+https://github.com/sdeery14/llm-system-lifecycle.git
+pip install git+https://github.com/sdeery14/mlflow-eval-tools.git
 ```
 
 Or from a specific branch/tag:
 
 ```bash
-pip install git+https://github.com/sdeery14/llm-system-lifecycle.git@v0.1.0
+pip install git+https://github.com/sdeery14/mlflow-eval-tools.git@v0.1.0
 ```
 
 ### Option 4: Network Share
@@ -157,7 +157,7 @@ Teams can add to `requirements.txt`:
 mlflow_eval_tools @ file:///path/to/mlflow_eval_tools-0.1.0-py3-none-any.whl
 
 # Or from Git
-mlflow-eval-tools @ git+https://github.com/sdeery14/llm-system-lifecycle.git@v0.1.0
+mlflow-eval-tools @ git+https://github.com/sdeery14/mlflow-eval-tools.git@v0.1.0
 
 # Or from PyPI
 mlflow-eval-tools==0.1.0
@@ -178,7 +178,7 @@ Add to `pyproject.toml`:
 mlflow-eval-tools = {path = "path/to/mlflow_eval_tools-0.1.0-py3-none-any.whl"}
 
 # Or from Git
-mlflow-eval-tools = {git = "https://github.com/sdeery14/llm-system-lifecycle.git", tag = "v0.1.0"}
+mlflow-eval-tools = {git = "https://github.com/sdeery14/mlflow-eval-tools.git", tag = "v0.1.0"}
 
 # Or from PyPI
 mlflow-eval-tools = "^0.1.0"
@@ -378,7 +378,7 @@ Documentation:
 
 Support:
   - Slack: #ml-evaluation
-  - Issues: https://github.com/sdeery14/llm-system-lifecycle/issues
+  - Issues: https://github.com/sdeery14/mlflow-eval-tools/issues
 
 Best regards,
 ML Platform Team

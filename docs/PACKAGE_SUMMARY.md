@@ -71,13 +71,13 @@ pip install mlflow_eval_tools-0.1.0-py3-none-any.whl
 
 ### Option 2: From Git
 ```bash
-pip install git+https://github.com/sdeery14/llm-system-lifecycle.git
+pip install git+https://github.com/sdeery14/mlflow-eval-tools.git
 ```
 
 ### Option 3: From Source
 ```bash
-git clone https://github.com/sdeery14/llm-system-lifecycle.git
-cd llm-system-lifecycle
+git clone https://github.com/sdeery14/mlflow-eval-tools.git
+cd mlflow-eval-tools
 poetry install
 ```
 
@@ -247,7 +247,7 @@ MIT License - See LICENSE file
 
 ## Repository
 
-https://github.com/sdeery14/llm-system-lifecycle
+https://github.com/sdeery14/mlflow-eval-tools
 
 ## Next Steps
 

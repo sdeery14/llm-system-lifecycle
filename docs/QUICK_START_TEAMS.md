@@ -19,8 +19,8 @@ pip install mlflow_eval_tools-0.1.0-py3-none-any.whl
 
 ```bash
 # Clone the repository
-git clone https://github.com/sdeery14/llm-system-lifecycle.git
-cd llm-system-lifecycle
+git clone https://github.com/sdeery14/mlflow-eval-tools.git
+cd mlflow-eval-tools
 
 # Install with poetry
 poetry install
@@ -362,8 +362,8 @@ mlflow-eval-tools agent-analysis $AGENT_RUN_ID $DATASET_NAME
 
 ## Getting Help
 
-- **Documentation**: See PACKAGE_README.md for full details
-- **Examples**: Check `docs/` folder for guides
+- **Documentation**: See [PACKAGE_README.md](PACKAGE_README.md) for full details
+- **Examples**: Check agent_analysis/ and dataset_builder/ folders for guides
 - **Issues**: Report bugs on GitHub
 - **MLflow UI**: Use `mlflow ui` to explore results
 
